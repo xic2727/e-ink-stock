@@ -94,9 +94,11 @@ class EPDController:
 
         if self.is_hardware_available and self.epd:
             try:
-                # 首次或休眠唤醒后需进入局部模式
-                if self.partial_count == 0:
+                # 首次或休眠唤醒后必须重新唤醒并进入局部刷新模式
+                if self.partial_count == 0 or self.is_sleeping:
+                    logger.info("Initializing EPD for partial refresh (waking from sleep or initial cycle)...")
                     self.epd.init_part()
+                    self.is_sleeping = False
 
                 buf = self.epd.getbuffer(hw_image)
                 self.epd.display_Partial(buf, 0, 0, self.width, self.height)

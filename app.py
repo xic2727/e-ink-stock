@@ -36,6 +36,8 @@ st.markdown("""
 # 初始化或获取调度器实例 (缓存于 session_state)
 if "scheduler" not in st.session_state:
     st.session_state.scheduler = MarketScheduler()
+    # 自动启动内置后台定时刷新守护服务 (若外部 daemon.py 未运行)
+    MarketScheduler.start_background_service()
 
 scheduler: MarketScheduler = st.session_state.scheduler
 
@@ -44,8 +46,9 @@ with st.sidebar:
     st.title("📟 墨水屏看板控制台")
     
     # 状态指示卡片
+    bg_stat = MarketScheduler.get_background_status()
     market_stat = scheduler.get_market_status()
-    st.info(f"**市场状态**：{market_stat.value}  \n**硬件模式**：{'🔌 树莓派 SPI 墨水屏' if scheduler.epd.is_hardware_available else '💻 虚拟/Mock 屏幕'}")
+    st.info(f"**市场状态**：{market_stat.value}  \n**北京时间**：{bg_stat['beijing_time'].split(' ')[1]}  \n**硬件模式**：{'🔌 树莓派 SPI 墨水屏' if scheduler.epd.is_hardware_available else '💻 虚拟/Mock 屏幕'}  \n**后台刷新**：{'🟢 运行中' if bg_stat['is_running'] else '🔴 未运行'}")
     
     st.subheader("⚡ 硬件与刷新控制")
     col_btn1, col_btn2 = st.columns(2)
@@ -71,7 +74,7 @@ with st.sidebar:
             st.toast("墨水屏已完全清白", icon="⚪")
 
     st.divider()
-    st.caption("提示：在开盘时段（9:30-11:30, 13:00-15:00），后台常驻进程 `daemon.py` 将自动每分钟局部更新一次。")
+    st.caption("提示：在开盘时段，后台定时刷新服务将自动对齐每分钟节点局部更新。")
 
 # ----------------- 主界面 Tabs -----------------
 tab_preview, tab_stocks, tab_display, tab_schedule, tab_api = st.tabs([
@@ -85,28 +88,31 @@ tab_preview, tab_stocks, tab_display, tab_schedule, tab_api = st.tabs([
 # ==================== Tab 1: 屏幕实时预览 ====================
 with tab_preview:
     st.header("800×480 墨水屏画面 1:1 实时预览")
-    
-    # 获取预览图片
-    preview_file = "latest_preview.png"
-    if not os.path.exists(preview_file):
-        # 初始自动生成一张
-        scheduler.refresh_once()
 
-    if os.path.exists(preview_file):
-        img = Image.open(preview_file)
-        st.image(img, caption=f"当前墨水屏展示画面 (分辨率: 800x480 单色位图) - 局部刷新计数: {scheduler.epd.partial_count}/{scheduler.epd.max_partial}", use_container_width=True)
-    else:
-        st.warning("暂无预览图像，请点击侧边栏的【立即局刷】生成第一帧画面。")
+    @st.fragment(run_every="10s")
+    def render_live_preview():
+        preview_file = "latest_preview.png"
+        if not os.path.exists(preview_file):
+            # 初始自动生成一张
+            scheduler.refresh_once()
 
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-    with col_m1:
-        st.metric("上次刷新时间", scheduler.state.update_time_str or "尚未刷新")
-    with col_m2:
-        st.metric("局刷累计次数", f"{scheduler.epd.partial_count} 次")
-    with col_m3:
-        st.metric("防残影阈值", f"{scheduler.epd.max_partial} 次")
-    with col_m4:
-        st.metric("屏幕休眠状态", "休眠中 💤" if scheduler.epd.is_sleeping else "工作唤醒 ⚡")
+        if os.path.exists(preview_file):
+            img = Image.open(preview_file)
+            st.image(img, caption=f"当前墨水屏展示画面 (分辨率: 800x480 单色位图) - 局部刷新计数: {scheduler.epd.partial_count}/{scheduler.epd.max_partial}", use_container_width=True)
+        else:
+            st.warning("暂无预览图像，请点击侧边栏的【立即局刷】生成第一帧画面。")
+
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        with col_m1:
+            st.metric("上次刷新时间", scheduler.state.update_time_str or "尚未刷新")
+        with col_m2:
+            st.metric("局刷累计次数", f"{scheduler.epd.partial_count} 次")
+        with col_m3:
+            st.metric("防残影阈值", f"{scheduler.epd.max_partial} 次")
+        with col_m4:
+            st.metric("屏幕休眠状态", "休眠中 💤" if scheduler.epd.is_sleeping else "工作唤醒 ⚡")
+
+    render_live_preview()
 
 # ==================== Tab 2: 自选股票管理 ====================
 with tab_stocks:
@@ -268,32 +274,86 @@ with tab_schedule:
     sys_cfg = config.get("system", {})
     mkt_cfg = config.get("market_hours", {})
 
+    # 1. 后台自动定时刷新监控看板
+    bg_stat = MarketScheduler.get_background_status()
+    st.subheader("📡 后台自动定时刷新服务状态")
+    
+    sc1, sc2, sc3, sc4 = st.columns(4)
+    with sc1:
+        st.metric("检测北京时间 (UTC+8)", bg_stat["beijing_time"].split(" ")[1])
+    with sc2:
+        st.metric("判定交易状态", bg_stat["last_status"])
+    with sc3:
+        st.metric("调度服务模式", bg_stat["mode"])
+    with sc4:
+        st.metric("下次预计动作", bg_stat["next_refresh_desc"])
+
+    col_btn_run, col_btn_stop = st.columns(2)
+    with col_btn_run:
+        if st.button("▶️ 启动后台自动刷新", use_container_width=True, disabled=bg_stat["is_running"]):
+            MarketScheduler.start_background_service()
+            st.toast("已启动后台定时刷新守护服务！", icon="🚀")
+            st.rerun()
+    with col_btn_stop:
+        if st.button("⏸️ 暂停后台自动刷新", use_container_width=True, disabled=not bg_stat["is_running"]):
+            MarketScheduler.stop_background_service()
+            st.toast("后台定时刷新已暂停！", icon="⏸️")
+            st.rerun()
+
+    st.divider()
+
+    # 2. 开闭市时间节点与刷新策略配置
     col_t1, col_t2 = st.columns(2)
     with col_t1:
         st.subheader("开盘刷新策略")
-        refresh_interval = st.number_input("开盘时段刷新频率 (秒)", min_value=10, max_value=600, value=int(sys_cfg.get("partial_refresh_interval_sec", 60)), step=10)
-        max_partial = st.number_input("自动全屏除残影阈值 (次)", min_value=5, max_value=100, value=int(sys_cfg.get("max_partial_refreshes_before_full", 20)), step=5, help="每进行 N 次局部刷新后，自动执行一次全刷闪烁，消除电子墨水残影")
-        trading_days_only = st.toggle("仅在交易日及开盘时段刷新", value=mkt_cfg.get("trading_days_only", True), help="关闭后将在任何时间均定时刷新，适合离线调试或周末演示")
-    
-    with col_t2:
-        st.subheader("闭市低功耗保护")
-        auto_sleep = st.toggle("闭市及周末后墨水屏自动深度休眠", value=sys_cfg.get("auto_sleep_outside_market", True), help="墨水屏依靠双稳态保持画面，休眠时关闭电极电压，防止元器件老化")
-        st.info("""
-        **A 股标准交易时段设置：**
-        * 早盘：09:25 ~ 11:30 (含集合竞价)
-        * 午盘：13:00 ~ 15:00
-        * 闭市保护：15:01 执行收盘盘点全刷，随后自动进入 Deep Sleep
-        """)
+        refresh_interval = st.number_input(
+            "开盘时段刷新频率 (秒)", 
+            min_value=5, 
+            max_value=600, 
+            value=int(sys_cfg.get("partial_refresh_interval_sec", 60)), 
+            step=5,
+            help="≥60 秒时自动对齐每分钟的 02 秒整点时间节点触发，精准匹配交易所分钟数据同步"
+        )
+        max_partial = st.number_input(
+            "自动全屏除残影阈值 (次)", 
+            min_value=5, 
+            max_value=100, 
+            value=int(sys_cfg.get("max_partial_refreshes_before_full", 20)), 
+            step=5, 
+            help="每进行 N 次局部刷新后，自动执行一次全刷闪烁，消除电子墨水残影"
+        )
+        trading_days_only = st.toggle(
+            "仅在交易日及开盘时段刷新", 
+            value=mkt_cfg.get("trading_days_only", True), 
+            help="【建议非开市测试时关闭】关闭后将在任何时间均按设置的频率定时刷新，适合周末测试或盘后查看效果"
+        )
+        auto_sleep = st.toggle(
+            "闭市及周末后墨水屏自动深度休眠", 
+            value=sys_cfg.get("auto_sleep_outside_market", True), 
+            help="墨水屏依靠双稳态保持画面，休眠时关闭电极电压，防止元器件老化"
+        )
 
-    if st.button("💾 保存调度配置"):
+    with col_t2:
+        st.subheader("A 股开市与闭市时间节点 (时:分)")
+        m_start = st.text_input("早盘开市节点", value=str(mkt_cfg.get("morning_start", "09:25")), help="含集合竞价，标准为 09:25")
+        m_end = st.text_input("早盘收市节点", value=str(mkt_cfg.get("morning_end", "11:30")), help="标准为 11:30，达到此节点将全屏刷一次防残影并休市")
+        a_start = st.text_input("午盘开市节点", value=str(mkt_cfg.get("afternoon_start", "13:00")), help="标准为 13:00，到达此节点将自动唤醒屏幕并恢复刷新")
+        a_end = st.text_input("午盘收市节点", value=str(mkt_cfg.get("afternoon_end", "15:00")), help="标准为 15:00，到达此节点执行最终全刷并进入 Deep Sleep")
+
+    if st.button("💾 保存调度与时间节点配置", type="primary"):
         sys_cfg["partial_refresh_interval_sec"] = refresh_interval
         sys_cfg["max_partial_refreshes_before_full"] = max_partial
         sys_cfg["auto_sleep_outside_market"] = auto_sleep
         mkt_cfg["trading_days_only"] = trading_days_only
+        mkt_cfg["morning_start"] = m_start.strip()
+        mkt_cfg["morning_end"] = m_end.strip()
+        mkt_cfg["afternoon_start"] = a_start.strip()
+        mkt_cfg["afternoon_end"] = a_end.strip()
         config["system"] = sys_cfg
         config["market_hours"] = mkt_cfg
         scheduler.save_config(config)
-        st.success("调度配置保存成功！")
+        st.success("调度与时间节点配置保存成功，后台服务已实时载入！")
+        st.rerun()
 
 # ==================== Tab 5: API 数据接口配置 ====================
 with tab_api:
