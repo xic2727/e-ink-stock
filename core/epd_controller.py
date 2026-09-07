@@ -23,6 +23,7 @@ class EPDController:
         self.epd = None
         self.last_image: Optional[Image.Image] = None
         self.is_sleeping = False
+        self.is_part_initialized = False
 
         self._init_driver()
 
@@ -56,6 +57,7 @@ class EPDController:
     def display_full(self, image: Image.Image):
         """
         全屏完整刷新：消除残影，重置局部刷新计数器。
+        刷新后自动将硬件底层切入局部模式（init_part），为后续无感局刷做好准备。
         """
         self.last_image = image
         self._save_preview(image)
@@ -66,26 +68,30 @@ class EPDController:
             try:
                 logger.info(f"Executing EPD Full Refresh (Clearing ghosting, Rotation: {self.rotation}°)...")
                 self.epd.init()
-                self.epd.Clear()
                 self.epd.display(self.epd.getbuffer(hw_image))
                 self.partial_count = 0
                 self.is_sleeping = False
+
+                # 全刷完成后立即载入局部波形，使硬件就绪，后续局刷绝对零闪烁
+                self.epd.init_part()
+                self.is_part_initialized = True
+                logger.info("EPD transitioned to partial mode ready for silent updates.")
             except Exception as e:
                 logger.error(f"Hardware display_full error: {e}")
         else:
             logger.info(f"[Mock EPD] Executed Full Refresh (Rotation: {self.rotation}°).")
             self.partial_count = 0
+            self.is_part_initialized = True
 
     def display_partial(self, image: Image.Image):
         """
-        局部刷新：无全屏闪烁，适合 1 分钟级定时行情更新。
-        自动累计刷新次数，达到阈值时自动触发全屏刷新防残影。
+        局部刷新：无全屏黑白闪烁反转，仅瞬间快速更新变动数值与走势图。
         """
         self.last_image = image
         self._save_preview(image)
 
-        # 检查是否需要触发全屏除残影
-        if self.partial_count >= self.max_partial:
+        # 检查是否需要触发全屏除残影 (当 max_partial > 0 且达到阈值时)
+        if self.max_partial > 0 and self.partial_count >= self.max_partial:
             logger.info(f"Partial refresh count reached limit ({self.max_partial}), triggering full refresh to clear ghosting.")
             self.display_full(image)
             return
@@ -94,30 +100,32 @@ class EPDController:
 
         if self.is_hardware_available and self.epd:
             try:
-                # 首次或休眠唤醒后必须重新唤醒并进入局部刷新模式
-                if self.partial_count == 0 or self.is_sleeping:
-                    logger.info("Initializing EPD for partial refresh (waking from sleep or initial cycle)...")
+                # 仅在初次启动或刚从深度休眠中唤醒时载入一次局部波形
+                if not getattr(self, "is_part_initialized", False) or self.is_sleeping:
+                    logger.info("Initializing EPD into partial mode (one-time setup or woke from sleep)...")
                     self.epd.init_part()
+                    self.is_part_initialized = True
                     self.is_sleeping = False
 
                 buf = self.epd.getbuffer(hw_image)
                 self.epd.display_Partial(buf, 0, 0, self.width, self.height)
                 self.partial_count += 1
-                self.is_sleeping = False
-                logger.info(f"EPD Partial Refresh executed (Count: {self.partial_count}/{self.max_partial}, Rotation: {self.rotation}°)")
+                logger.info(f"EPD Silent Partial Refresh executed (Count: {self.partial_count}/{self.max_partial}, Rotation: {self.rotation}°)")
             except Exception as e:
                 logger.error(f"Hardware display_partial error: {e}")
         else:
             self.partial_count += 1
-            logger.info(f"[Mock EPD] Partial Refresh executed (Count: {self.partial_count}/{self.max_partial}, Rotation: {self.rotation}°)")
+            logger.info(f"[Mock EPD] Silent Partial Refresh executed (Count: {self.partial_count}/{self.max_partial}, Rotation: {self.rotation}°)")
 
     def clear(self):
-        """全屏清屏"""
+        """全屏清白"""
         if self.is_hardware_available and self.epd:
             try:
                 self.epd.init()
                 self.epd.Clear()
                 self.partial_count = 0
+                self.is_sleeping = False
+                self.is_part_initialized = False
             except Exception as e:
                 logger.error(f"Hardware clear error: {e}")
         else:
@@ -129,11 +137,13 @@ class EPDController:
             try:
                 self.epd.sleep()
                 self.is_sleeping = True
+                self.is_part_initialized = False
                 logger.info("EPD entered sleep mode.")
             except Exception as e:
                 logger.error(f"Hardware sleep error: {e}")
         else:
             self.is_sleeping = True
+            self.is_part_initialized = False
             logger.info("[Mock EPD] EPD sleep mode.")
 
     def _save_preview(self, image: Image.Image):

@@ -316,11 +316,11 @@ with tab_schedule:
         )
         max_partial = st.number_input(
             "自动全屏除残影阈值 (次)", 
-            min_value=5, 
+            min_value=0, 
             max_value=100, 
             value=int(sys_cfg.get("max_partial_refreshes_before_full", 20)), 
             step=5, 
-            help="每进行 N 次局部刷新后，自动执行一次全刷闪烁，消除电子墨水残影"
+            help="每进行 N 次局部刷新后自动全刷除残影。设置为 0 则盘中永不自动闪烁全刷（仅午休/收盘或手动清残影）"
         )
         trading_days_only = st.toggle(
             "仅在交易日及开盘时段刷新", 

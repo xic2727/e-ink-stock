@@ -201,11 +201,6 @@ class MarketScheduler:
         else:
             self.epd.display_partial(img)
 
-        # 6. 处理非开盘时段自动休眠
-        if self.config.get("system", {}).get("auto_sleep_outside_market", True):
-            if self.state.market_status in (MarketStatus.POST_MARKET, MarketStatus.WEEKEND_HOLIDAY):
-                self.epd.sleep()
-
         return img
 
     # ==================== 后台自动定时刷新守护服务 ====================
@@ -321,8 +316,8 @@ class MarketScheduler:
                 if current_status != cls._last_status:
                     logger.info(f"Market status transition: {cls._last_status} -> {current_status}")
                     if current_status in (MarketStatus.TRADING, MarketStatus.PRE_MARKET):
-                        logger.info(f"Market opened ({current_status.value}), executing opening refresh...")
-                        scheduler.refresh_once(force_full_refresh=(current_status == MarketStatus.TRADING))
+                        logger.info(f"Market opened ({current_status.value}), executing opening silent partial refresh...")
+                        scheduler.refresh_once(force_full_refresh=False)
                         cls._last_refresh_ts = time.time()
                         cls._last_refreshed_minute = beijing_now.minute
                     elif current_status == MarketStatus.NOON_BREAK:
