@@ -3,7 +3,7 @@ import json
 import time
 import logging
 from datetime import datetime, time as dtime
-from typing import Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image
 
 from core.models import MarketStatus, SystemState, LayoutMode
