@@ -1,0 +1,59 @@
+{
+  "system": {
+    "device_width": 800,
+    "device_height": 480,
+    "partial_refresh_interval_sec": 60,
+    "max_partial_refreshes_before_full": 20,
+    "auto_sleep_outside_market": true,
+    "mock_epd_on_pc": true
+  },
+  "market_hours": {
+    "morning_start": "09:25",
+    "morning_end": "11:30",
+    "afternoon_start": "13:00",
+    "afternoon_end": "15:00",
+    "trading_days_only": true
+  },
+  "display": {
+    "layout_mode": "focus_and_list",
+    "auto_rotate_focus": true,
+    "rotate_interval_cycles": 3,
+    "focus_stock_code": "600519",
+    "show_indices": true,
+    "chart_dithering": true,
+    "chart_contrast_boost": 1.4
+  },
+  "stocks": [
+    {
+      "code": "600519",
+      "name": "贵州茅台",
+      "market": "SH",
+      "enabled": true
+    },
+    {
+      "code": "300750",
+      "name": "宁德时代",
+      "market": "SZ",
+      "enabled": true
+    },
+    {
+      "code": "000001",
+      "name": "平安银行",
+      "market": "SZ",
+      "enabled": true
+    },
+    {
+      "code": "002594",
+      "name": "比亚迪",
+      "market": "SZ",
+      "enabled": true
+    }
+  ],
+  "api": {
+    "provider": "mock",
+    "custom_quote_url": "",
+    "custom_chart_url": "",
+    "custom_token": "",
+    "request_timeout_sec": 5
+  }
+}
