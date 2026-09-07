@@ -243,18 +243,21 @@ with tab_display:
         rotate_cycles = st.slider("主力股票轮播周期 (每 N 次刷新切换下一支)", min_value=1, max_value=10, value=disp.get("rotate_interval_cycles", 3))
     with col_d2:
         show_indices = st.toggle("顶部显示大盘指数栏 (上证/深证/创业板)", value=disp.get("show_indices", True))
-        contrast_boost = st.slider("折线图二值化对比度增强", min_value=1.0, max_value=2.5, value=float(disp.get("chart_contrast_boost", 1.4)), step=0.1)
+        rot_choices = {180: "180° (上下颠倒修正 - 当前默认)", 0: "0° (标准原向)", 90: "90° (顺时针90度)", 270: "270° (逆时针90度)"}
+        current_rot = config.get("system", {}).get("rotation", 180)
+        selected_rot = st.selectbox("墨水屏物理安装旋转方向", options=list(rot_choices.keys()), format_func=lambda k: rot_choices[k], index=list(rot_choices.keys()).index(current_rot) if current_rot in rot_choices else 0)
 
     if st.button("💾 保存显示配置并立即应用", type="primary"):
         disp["layout_mode"] = selected_layout
         disp["auto_rotate_focus"] = auto_rotate
         disp["rotate_interval_cycles"] = rotate_cycles
         disp["show_indices"] = show_indices
-        disp["chart_contrast_boost"] = contrast_boost
         config["display"] = disp
+        config.setdefault("system", {})["rotation"] = selected_rot
         scheduler.save_config(config)
-        scheduler.refresh_once()
-        st.success("显示配置已更新，并已重新渲染墨水屏！")
+        scheduler.epd.rotation = selected_rot
+        scheduler.refresh_once(force_full_refresh=True)
+        st.success("显示与旋转配置已更新，并已向墨水屏推送新画面！")
         st.rerun()
 
 # ==================== Tab 4: 交易时钟与调度 ====================

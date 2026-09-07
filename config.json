@@ -4,6 +4,7 @@
     "device_height": 480,
     "partial_refresh_interval_sec": 60,
     "max_partial_refreshes_before_full": 20,
+    "rotation": 180,
     "auto_sleep_outside_market": true,
     "mock_epd_on_pc": true
   },

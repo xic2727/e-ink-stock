@@ -17,6 +17,7 @@ class EPDController:
         self.width = self.config.get("device_width", 800)
         self.height = self.config.get("device_height", 480)
         self.max_partial = self.config.get("max_partial_refreshes_before_full", 20)
+        self.rotation = self.config.get("rotation", 180)
         self.partial_count = 0
         self.is_hardware_available = False
         self.epd = None
@@ -24,6 +25,16 @@ class EPDController:
         self.is_sleeping = False
 
         self._init_driver()
+
+    def _apply_rotation(self, image: Image.Image) -> Image.Image:
+        """根据硬件安装方向旋转画面（默认 180 度修正倒装）"""
+        if self.rotation == 180:
+            return image.rotate(180)
+        elif self.rotation == 90:
+            return image.rotate(90, expand=True)
+        elif self.rotation == 270:
+            return image.rotate(270, expand=True)
+        return image
 
     def _init_driver(self):
         """尝试导入微雪驱动，若在非树莓派环境则无缝降级为虚拟屏幕模式"""
@@ -49,18 +60,20 @@ class EPDController:
         self.last_image = image
         self._save_preview(image)
 
+        hw_image = self._apply_rotation(image)
+
         if self.is_hardware_available and self.epd:
             try:
-                logger.info("Executing EPD Full Refresh (Clearing ghosting)...")
+                logger.info(f"Executing EPD Full Refresh (Clearing ghosting, Rotation: {self.rotation}°)...")
                 self.epd.init()
                 self.epd.Clear()
-                self.epd.display(self.epd.getbuffer(image))
+                self.epd.display(self.epd.getbuffer(hw_image))
                 self.partial_count = 0
                 self.is_sleeping = False
             except Exception as e:
                 logger.error(f"Hardware display_full error: {e}")
         else:
-            logger.info("[Mock EPD] Executed Full Refresh.")
+            logger.info(f"[Mock EPD] Executed Full Refresh (Rotation: {self.rotation}°).")
             self.partial_count = 0
 
     def display_partial(self, image: Image.Image):
@@ -77,22 +90,24 @@ class EPDController:
             self.display_full(image)
             return
 
+        hw_image = self._apply_rotation(image)
+
         if self.is_hardware_available and self.epd:
             try:
                 # 首次或休眠唤醒后需进入局部模式
                 if self.partial_count == 0:
                     self.epd.init_part()
 
-                buf = self.epd.getbuffer(image)
+                buf = self.epd.getbuffer(hw_image)
                 self.epd.display_Partial(buf, 0, 0, self.width, self.height)
                 self.partial_count += 1
                 self.is_sleeping = False
-                logger.info(f"EPD Partial Refresh executed (Count: {self.partial_count}/{self.max_partial})")
+                logger.info(f"EPD Partial Refresh executed (Count: {self.partial_count}/{self.max_partial}, Rotation: {self.rotation}°)")
             except Exception as e:
                 logger.error(f"Hardware display_partial error: {e}")
         else:
             self.partial_count += 1
-            logger.info(f"[Mock EPD] Partial Refresh executed (Count: {self.partial_count}/{self.max_partial})")
+            logger.info(f"[Mock EPD] Partial Refresh executed (Count: {self.partial_count}/{self.max_partial}, Rotation: {self.rotation}°)")
 
     def clear(self):
         """全屏清屏"""
