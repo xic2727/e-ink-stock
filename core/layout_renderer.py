@@ -21,6 +21,8 @@ class LayoutRenderer:
         self.font_regular = FontManager.load(15, bold=False)
         self.font_small = FontManager.load(12, bold=False)
         self.font_badge = FontManager.load(14, bold=True)
+        self.font_header_idx = FontManager.load(17, bold=True)
+        self.font_header_status = FontManager.load(14, bold=True)
 
     def render(
         self,
@@ -64,21 +66,22 @@ class LayoutRenderer:
         return canvas
 
     def _render_header(self, draw: ImageDraw.Draw, indices: List[StockIndex], state: SystemState):
-        """绘制顶部状态栏：指数、时间、交易状态"""
-        header_h = 36
+        """绘制顶部状态栏：核心大盘指数、时间、交易状态"""
+        header_h = 38
         draw.rectangle([0, 0, self.WIDTH, header_h], fill=255)
         draw.line([(0, header_h), (self.WIDTH, header_h)], fill=0, width=2)
 
-        # 左侧绘制核心指数（如上证、深证）
+        # 左侧绘制核心指数（如上证指数、深证成指），使用 17pt 大号加粗字体
         x_offset = 12
         for idx in indices[:2]:
             arrow = "▲" if idx.change_pct > 0 else ("▼" if idx.change_pct < 0 else "-")
             sign = "+" if idx.change_pct > 0 else ""
             idx_str = f"{idx.name} {idx.points:.2f} {arrow}{sign}{idx.change_pct:.2f}%"
-            draw.text((x_offset, 9), idx_str, font=self.font_small, fill=0)
-            x_offset += 210
+            draw.text((x_offset, 7), idx_str, font=self.font_header_idx, fill=0)
+            bbox = draw.textbbox((x_offset, 7), idx_str, font=self.font_header_idx)
+            x_offset = bbox[2] + 26
 
-        # 右侧绘制时间和市场状态
+        # 右侧绘制时间和市场状态（右对齐）
         time_str = state.market_status.value
         clock_str = state.update_time_str if hasattr(state, 'update_time_str') else ""
         if not clock_str:
@@ -86,7 +89,9 @@ class LayoutRenderer:
             clock_str = datetime.datetime.now().strftime("%H:%M:%S")
 
         status_text = f"[{time_str}] {clock_str}"
-        draw.text((self.WIDTH - 165, 9), status_text, font=self.font_badge, fill=0)
+        s_bbox = draw.textbbox((0, 0), status_text, font=self.font_header_status)
+        s_w = s_bbox[2] - s_bbox[0]
+        draw.text((self.WIDTH - s_w - 12, 9), status_text, font=self.font_header_status, fill=0)
 
     def _render_focus_and_list(
         self,
@@ -103,7 +108,7 @@ class LayoutRenderer:
         模式一：大盘全景走势与情绪统计 (左侧 530px) + 自选股监控池 (右侧 270px)
         """
         split_x = 530
-        draw.line([(split_x, 36), (split_x, self.HEIGHT)], fill=0, width=2)
+        draw.line([(split_x, 38), (split_x, self.HEIGHT)], fill=0, width=2)
 
         left_pad = 14
         top_y = 44
@@ -128,7 +133,7 @@ class LayoutRenderer:
             price_bbox = draw.textbbox((left_pad, price_y), price_str, font=self.font_large)
             self._draw_change_badge(draw, idx_pct, idx_amt, x=price_bbox[2] + 14, y=price_y + 6, font=self.font_badge, show_amt=True)
 
-            # 指数关键指标
+            # 指数关键指标 (放大加粗)
             info_y = price_y + 40
             open_p = market_index_data.get("open_price", 0.0)
             prev_c = market_index_data.get("yesterday_close", 0.0)
@@ -141,8 +146,11 @@ class LayoutRenderer:
             vol_str = f"{vol/100000000.0:.2f}亿手" if vol >= 100000000 else f"{vol/10000.0:.1f}万手"
             turn_str = f"{turn/10000.0:.1f}亿元" if turn >= 10000 else f"{turn:.0f}万元"
 
-            line1 = f"今开: {open_p:.2f}  最高: {high_p:.2f}  最低: {low_p:.2f}  昨收: {prev_c:.2f}"
-            draw.text((left_pad, info_y), line1, font=self.font_small, fill=0)
+            f_15_b = FontManager.load(15, bold=True)
+            f_13_b = FontManager.load(13, bold=False)
+
+            line1 = f"今开: {open_p:.2f}   最高: {high_p:.2f}   最低: {low_p:.2f}   昨收: {prev_c:.2f}"
+            draw.text((left_pad, info_y), line1, font=f_15_b, fill=0)
 
             # 涨跌平统计或成交额
             up_c = market_index_data.get("up_count", 0)
@@ -152,10 +160,10 @@ class LayoutRenderer:
                 line2 = f"成交: {vol_str} ({turn_str})  |  涨 {up_c}   平 {flat_c}   跌 {down_c}"
             else:
                 line2 = f"成交量: {vol_str}     成交额: {turn_str}"
-            draw.text((left_pad, info_y + 18), line2, font=self.font_small, fill=0)
+            draw.text((left_pad, info_y + 23), line2, font=f_13_b, fill=0)
 
             # 绘制大盘分时走势图
-            chart_y = info_y + 38
+            chart_y = info_y + 46
             chart_w = split_x - left_pad * 2
             chart_h = self.HEIGHT - chart_y - 8
 
@@ -224,7 +232,7 @@ class LayoutRenderer:
     ):
         """模式二：大盘分时走势 (左 400px) + 核心焦点股票深度指标 (右 400px)"""
         mid_x = self.WIDTH // 2
-        draw.line([(mid_x, 36), (mid_x, self.HEIGHT)], fill=0, width=2)
+        draw.line([(mid_x, 38), (mid_x, self.HEIGHT)], fill=0, width=2)
 
         pad = 12
         # --- 左侧：大盘走势图 ---
@@ -260,10 +268,12 @@ class LayoutRenderer:
             vol_str = self._format_volume(s.volume)
             turn_str = self._format_turnover(s.turnover)
 
-            draw.text((rx, ry + 95), f"今开: {s.open_price:.2f}     昨收: {s.prev_close:.2f}", font=self.font_regular, fill=0)
-            draw.text((rx, ry + 125), f"最高: {s.high_price:.2f}     最低: {s.low_price:.2f}", font=self.font_regular, fill=0)
-            draw.text((rx, ry + 155), f"成交量: {vol_str}   成交额: {turn_str}", font=self.font_regular, fill=0)
-            draw.text((rx, ry + 185), f"报价时间: {s.update_time}", font=self.font_small, fill=0)
+            f_18_b = FontManager.load(18, bold=True)
+            f_15_b = FontManager.load(15, bold=True)
+            draw.text((rx, ry + 95), f"今开: {s.open_price:.2f}     昨收: {s.prev_close:.2f}", font=f_18_b, fill=0)
+            draw.text((rx, ry + 128), f"最高: {s.high_price:.2f}     最低: {s.low_price:.2f}", font=f_18_b, fill=0)
+            draw.text((rx, ry + 162), f"成交量: {vol_str}   成交额: {turn_str}", font=f_15_b, fill=0)
+            draw.text((rx, ry + 195), f"报价时间: {s.update_time}", font=self.font_small, fill=0)
 
     def _render_grid_overview(
         self,
@@ -288,7 +298,7 @@ class LayoutRenderer:
             self._render_empty_state(draw)
             return
 
-        header_h = 36
+        header_h = 38
         avail_w = self.WIDTH
         avail_h = self.HEIGHT - header_h
 
@@ -343,7 +353,7 @@ class LayoutRenderer:
             cx = col * cell_w
             cy = header_h + row * cell_h
 
-            if cols == 4:  # 13~16 支股票 (每格 200 x 111)
+            if cols == 4:  # 13~16 支股票 (每格 200 x 110)
                 pad_x = 8
                 # 股票名与代码
                 draw.text((cx + pad_x, cy + 5), s.name[:5], font=f_15_b, fill=0)
@@ -351,48 +361,54 @@ class LayoutRenderer:
                 # 现价
                 draw.text((cx + pad_x, cy + 27), f"{s.price:.2f}", font=f_18_b, fill=0)
                 # 紧凑涨跌徽章
-                self._draw_change_badge(draw, s.change_pct, s.change_amt, cx + pad_x, cy + 53, font=f_12_b, show_amt=False)
-                # 最低/最高
-                draw.text((cx + pad_x, cy + 78), f"高:{s.high_price:.1f} 低:{s.low_price:.1f}", font=f_11, fill=0)
-                # 今开/昨收
-                draw.text((cx + pad_x, cy + 93), f"开:{s.open_price:.1f} 昨:{s.prev_close:.1f}", font=f_11, fill=0)
+                self._draw_change_badge(draw, s.change_pct, s.change_amt, cx + pad_x, cy + 52, font=f_12_b, show_amt=False)
 
-            elif cols == 3 and rows == 4:  # 10~12 支股票 (每格 266 x 111)
+                # 今开/昨收/最高/最低 放大至 13pt bold 加粗
+                o_str = f"{s.open_price:.1f}" if s.open_price >= 1000 else f"{s.open_price:.2f}"
+                c_str = f"{s.prev_close:.1f}" if s.prev_close >= 1000 else f"{s.prev_close:.2f}"
+                h_str = f"{s.high_price:.1f}" if s.high_price >= 1000 else f"{s.high_price:.2f}"
+                l_str = f"{s.low_price:.1f}" if s.low_price >= 1000 else f"{s.low_price:.2f}"
+
+                draw.text((cx + pad_x, cy + 73), f"开:{o_str} 昨:{c_str}", font=f_13_b, fill=0)
+                draw.text((cx + pad_x, cy + 90), f"高:{h_str} 低:{l_str}", font=f_13_b, fill=0)
+
+            elif cols == 3 and rows == 4:  # 10~12 支股票 (每格 266 x 110)
                 pad_x = 10
                 draw.text((cx + pad_x, cy + 6), s.name[:6], font=f_16_b, fill=0)
                 draw.text((cx + pad_x + 85, cy + 9), s.code, font=f_12, fill=0)
                 # 现价与徽标同行
-                draw.text((cx + pad_x, cy + 30), f"{s.price:.2f}", font=f_20_b, fill=0)
-                p_bbox = draw.textbbox((cx + pad_x, cy + 30), f"{s.price:.2f}", font=f_20_b)
-                self._draw_change_badge(draw, s.change_pct, s.change_amt, p_bbox[2] + 8, cy + 33, font=f_12_b, show_amt=False)
-                # 量价指标
-                draw.text((cx + pad_x, cy + 62), f"今开: {s.open_price:.2f}   昨收: {s.prev_close:.2f}", font=f_11, fill=0)
-                draw.text((cx + pad_x, cy + 82), f"最高: {s.high_price:.2f}   最低: {s.low_price:.2f}", font=f_11, fill=0)
+                draw.text((cx + pad_x, cy + 29), f"{s.price:.2f}", font=f_20_b, fill=0)
+                p_bbox = draw.textbbox((cx + pad_x, cy + 29), f"{s.price:.2f}", font=f_20_b)
+                self._draw_change_badge(draw, s.change_pct, s.change_amt, p_bbox[2] + 8, cy + 32, font=f_12_b, show_amt=False)
+                # 个股指标增大至 14pt bold
+                draw.text((cx + pad_x, cy + 60), f"今开: {s.open_price:.2f}   最高: {s.high_price:.2f}", font=f_14_b, fill=0)
+                draw.text((cx + pad_x, cy + 83), f"昨收: {s.prev_close:.2f}   最低: {s.low_price:.2f}", font=f_14_b, fill=0)
 
-            elif cols == 3 and rows == 3:  # 9 支股票 (每格 266 x 148, 经典九宫格)
+            elif cols == 3 and rows == 3:  # 9 支股票 (每格 266 x 147, 经典九宫格)
                 pad_x = 12
                 draw.text((cx + pad_x, cy + 8), s.name[:6], font=f_18_b, fill=0)
                 draw.text((cx + pad_x + 95, cy + 12), s.code, font=f_12, fill=0)
-                draw.text((cx + pad_x, cy + 36), f"{s.price:.2f}", font=f_26_b, fill=0)
-                self._draw_change_badge(draw, s.change_pct, s.change_amt, cx + pad_x, cy + 74, font=f_13_b, show_amt=True)
-                draw.text((cx + pad_x, cy + 104), f"今开:{s.open_price:.2f}  最高:{s.high_price:.2f}", font=f_12, fill=0)
-                draw.text((cx + pad_x, cy + 124), f"昨收:{s.prev_close:.2f}  最低:{s.low_price:.2f}", font=f_12, fill=0)
+                draw.text((cx + pad_x, cy + 35), f"{s.price:.2f}", font=f_26_b, fill=0)
+                self._draw_change_badge(draw, s.change_pct, s.change_amt, cx + pad_x, cy + 72, font=f_13_b, show_amt=True)
+                # 个股指标增大至 15pt bold
+                draw.text((cx + pad_x, cy + 98), f"今开: {s.open_price:.2f}   最高: {s.high_price:.2f}", font=f_15_b, fill=0)
+                draw.text((cx + pad_x, cy + 122), f"昨收: {s.prev_close:.2f}   最低: {s.low_price:.2f}", font=f_15_b, fill=0)
 
-            elif cols == 2 and rows == 4:  # 7~8 支股票 (每格 400 x 111)
+            elif cols == 2 and rows == 4:  # 7~8 支股票 (每格 400 x 110)
                 pad_x = 12
                 # 左侧：股票名称与代码
                 draw.text((cx + pad_x, cy + 8), s.name[:6], font=f_18_b, fill=0)
                 draw.text((cx + pad_x, cy + 34), s.code, font=f_12, fill=0)
                 self._draw_change_badge(draw, s.change_pct, s.change_amt, cx + pad_x, cy + 60, font=f_13_b, show_amt=False)
                 # 中间：大号现价
-                draw.text((cx + 145, cy + 22), f"{s.price:.2f}", font=f_30_b, fill=0)
-                # 右侧：量价
-                draw.text((cx + 265, cy + 18), f"今开: {s.open_price:.2f}", font=f_12, fill=0)
-                draw.text((cx + 265, cy + 38), f"昨收: {s.prev_close:.2f}", font=f_12, fill=0)
-                draw.text((cx + 265, cy + 58), f"最高: {s.high_price:.2f}", font=f_12, fill=0)
-                draw.text((cx + 265, cy + 78), f"最低: {s.low_price:.2f}", font=f_12, fill=0)
+                draw.text((cx + 130, cy + 22), f"{s.price:.2f}", font=f_30_b, fill=0)
+                # 右侧：个股量价指标增大至 15pt bold 加粗
+                draw.text((cx + 252, cy + 10), f"今开: {s.open_price:.2f}", font=f_15_b, fill=0)
+                draw.text((cx + 252, cy + 34), f"昨收: {s.prev_close:.2f}", font=f_15_b, fill=0)
+                draw.text((cx + 252, cy + 58), f"最高: {s.high_price:.2f}", font=f_15_b, fill=0)
+                draw.text((cx + 252, cy + 82), f"最低: {s.low_price:.2f}", font=f_15_b, fill=0)
 
-            elif cols == 2 and rows == 3:  # 5~6 支股票 (每格 400 x 148)
+            elif cols == 2 and rows == 3:  # 5~6 支股票 (每格 400 x 147)
                 pad_x = 14
                 draw.text((cx + pad_x, cy + 10), f"{s.name} ({s.code})", font=f_20_b, fill=0)
                 draw.text((cx + pad_x, cy + 38), f"{s.price:.2f}", font=f_30_b, fill=0)
@@ -400,10 +416,14 @@ class LayoutRenderer:
                 self._draw_change_badge(draw, s.change_pct, s.change_amt, p_bbox[2] + 14, cy + 45, font=f_14_b, show_amt=True)
                 vol_str = self._format_volume(s.volume)
                 turn_str = self._format_turnover(s.turnover)
-                draw.text((cx + pad_x, cy + 86), f"今开: {s.open_price:.2f}   最高: {s.high_price:.2f}   最低: {s.low_price:.2f}", font=f_12, fill=0)
-                draw.text((cx + pad_x, cy + 110), f"昨收: {s.prev_close:.2f}   成交量: {vol_str}   成交额: {turn_str}", font=f_12, fill=0)
+                # 个股指标增大至 16pt bold 双列排布
+                draw.text((cx + pad_x, cy + 76), f"今开: {s.open_price:.2f}", font=f_16_b, fill=0)
+                draw.text((cx + pad_x + 180, cy + 76), f"最高: {s.high_price:.2f}", font=f_16_b, fill=0)
+                draw.text((cx + pad_x, cy + 100), f"昨收: {s.prev_close:.2f}", font=f_16_b, fill=0)
+                draw.text((cx + pad_x + 180, cy + 100), f"最低: {s.low_price:.2f}", font=f_16_b, fill=0)
+                draw.text((cx + pad_x, cy + 124), f"成交: {vol_str}   成交额: {turn_str}", font=f_13_b, fill=0)
 
-            else:  # 1~4 支股票 (原有大尺寸详细看板)
+            else:  # 1~4 支股票 (大尺寸详细看板)
                 pad_x = 16
                 draw.text((cx + pad_x, cy + 12), f"{s.name} ({s.code})", font=self.font_title, fill=0)
                 draw.text((cx + pad_x, cy + 44), f"{s.price:.2f}", font=self.font_large, fill=0)
@@ -411,9 +431,10 @@ class LayoutRenderer:
                 self._draw_change_badge(draw, s.change_pct, s.change_amt, x=p_bbox[2] + 16, y=cy + 50, font=self.font_badge, show_amt=True)
                 vol_str = self._format_volume(s.volume)
                 turn_str = self._format_turnover(s.turnover)
-                draw.text((cx + pad_x, cy + 96), f"今开: {s.open_price:.2f}     昨收: {s.prev_close:.2f}", font=self.font_regular, fill=0)
-                draw.text((cx + pad_x, cy + 122), f"最高: {s.high_price:.2f}     最低: {s.low_price:.2f}", font=self.font_regular, fill=0)
-                draw.text((cx + pad_x, cy + 148), f"成交量: {vol_str}   成交额: {turn_str}", font=self.font_small, fill=0)
+                # 个股指标增大至 18pt bold
+                draw.text((cx + pad_x, cy + 96), f"今开: {s.open_price:.2f}     昨收: {s.prev_close:.2f}", font=f_18_b, fill=0)
+                draw.text((cx + pad_x, cy + 128), f"最高: {s.high_price:.2f}     最低: {s.low_price:.2f}", font=f_18_b, fill=0)
+                draw.text((cx + pad_x, cy + 160), f"成交量: {vol_str}   成交额: {turn_str}", font=f_15_b, fill=0)
 
     def _draw_change_badge(
         self,
