@@ -11,6 +11,7 @@ from core.layout_renderer import LayoutRenderer
 from core.epd_controller import EPDController
 from services.mock_stock_api import MockStockAPI
 from services.custom_stock_api import CustomStockAPI
+from services.tencent_stock_api import TencentStockAPI
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +46,10 @@ class MarketScheduler:
         self._init_api()
 
     def _init_api(self):
-        provider = self.config.get("api", {}).get("provider", "mock")
-        if provider == "custom":
+        provider = self.config.get("api", {}).get("provider", "tencent")
+        if provider == "tencent":
+            self.api = TencentStockAPI()
+        elif provider == "custom":
             self.api = CustomStockAPI(self.config)
         else:
             self.api = MockStockAPI()
@@ -84,12 +87,19 @@ class MarketScheduler:
         else:
             return MarketStatus.POST_MARKET
 
-    def refresh_once(self, force_full_refresh: bool = False, override_layout: Optional[LayoutMode] = None) -> Image.Image:
+    def refresh_once(
+        self,
+        force_full_refresh: bool = False,
+        override_layout: Optional[LayoutMode] = None,
+        override_stocks: Optional[List[dict]] = None
+    ) -> Image.Image:
         """
         执行单次完整刷新流程：拉取数据 -> 渲染画布 -> 推送墨水屏。
         """
         # 实时重新读取配置以防前端修改
         self.config = self.load_config()
+        if override_stocks is not None:
+            self.config["stocks"] = override_stocks
         self.state.market_status = self.get_market_status()
 
         # 获取启用的自选股票代码列表
@@ -128,20 +138,13 @@ class MarketScheduler:
             focus_idx = 0
             self.state.current_focus_index = 0
 
-        # 3. 获取折线图图片
-        chart_images = {}
-        if quotes:
-            focus_code = quotes[focus_idx].code
-            chart_img = self.api.get_stock_chart_image(focus_code, width=500, height=260)
-            if chart_img:
-                chart_images[focus_code] = chart_img
-
-            # 如果是双股对比模式，还需拉取第二支的折线图
-            if layout_mode == LayoutMode.DUAL_COMPARE and len(quotes) > 1:
-                second_code = quotes[1].code
-                c2 = self.api.get_stock_chart_image(second_code, width=380, height=250)
-                if c2:
-                    chart_images[second_code] = c2
+        # 3. 获取大盘走势图与大盘数据 (若为 TencentStockAPI)
+        market_index_data = None
+        market_chart_img = None
+        if hasattr(self.api, "fetch_index_data"):
+            market_index_data = self.api.fetch_index_data("sh000001")
+            if market_index_data and hasattr(self.api, "generate_index_chart"):
+                market_chart_img = self.api.generate_index_chart(market_index_data, width=500, height=230)
 
         # 4. 渲染 800x480 单色位图
         self.state.last_refresh_time = time.time()
@@ -151,7 +154,9 @@ class MarketScheduler:
             stocks=quotes,
             indices=indices,
             state=self.state,
-            chart_images=chart_images,
+            chart_images={},
+            market_index_data=market_index_data,
+            market_chart_img=market_chart_img,
             layout_mode=layout_mode,
             focus_index=focus_idx,
             config=self.config

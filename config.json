@@ -25,6 +25,12 @@
   },
   "stocks": [
     {
+      "code": "000938",
+      "name": "紫光股份",
+      "market": "SZ",
+      "enabled": true
+    },
+    {
       "code": "600519",
       "name": "贵州茅台",
       "market": "SH",
@@ -50,7 +56,7 @@
     }
   ],
   "api": {
-    "provider": "mock",
+    "provider": "tencent",
     "custom_quote_url": "",
     "custom_chart_url": "",
     "custom_token": "",

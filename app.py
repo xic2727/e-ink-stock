@@ -115,19 +115,60 @@ with tab_stocks:
     config = scheduler.load_config()
     stocks = config.get("stocks", [])
     
-    # 顶部添加股票表单
-    with st.expander("➕ 添加新股票到自选池", expanded=False):
+    # 1. 腾讯 Smartbox 智能搜索与快捷添加
+    st.subheader("🔍 搜索并快捷添加股票 (腾讯 Smartbox 驱动)")
+    col_q1, col_q2 = st.columns([4, 1])
+    with col_q1:
+        search_query = st.text_input("输入股票代码、拼音或名称", placeholder="例如: 000938 或 紫光股份 或 茅台", label_visibility="collapsed")
+    with col_q2:
+        do_search = st.button("🔍 搜索股票", use_container_width=True)
+
+    if search_query.strip():
+        from services.tencent_stock_api import TencentStockAPI
+        searcher = TencentStockAPI()
+        search_results = searcher.search_stock(search_query.strip())
+        if search_results:
+            st.write(f"找到 {len(search_results)} 个匹配项：")
+            for s_idx, item in enumerate(search_results[:5]):
+                col_r1, col_r2, col_r3, col_r4 = st.columns([2, 2, 2, 1])
+                with col_r1:
+                    st.write(f"**{item['name']}**")
+                with col_r2:
+                    st.code(item['market_code'])
+                with col_r3:
+                    st.caption(f"板块: {item['type']} ({item['market']})")
+                with col_r4:
+                    if st.button("➕ 添加", key=f"add_{item['market_code']}_{s_idx}"):
+                        if any(s["code"] == item["code"] for s in stocks):
+                            st.warning("该股票已在自选池中！")
+                        else:
+                            stocks.append({
+                                "code": item["code"],
+                                "name": item["name"],
+                                "market": item["market"],
+                                "enabled": True
+                            })
+                            config["stocks"] = stocks
+                            scheduler.save_config(config)
+                            st.success(f"已添加：{item['name']} ({item['code']})")
+                            st.rerun()
+        else:
+            if do_search:
+                st.warning("未查询到匹配标的，请确认输入是否准确。")
+
+    # 2. 手动添加备用折叠面板
+    with st.expander("✍️ 手动精确录入代码", expanded=False):
         col_a1, col_a2, col_a3, col_a4 = st.columns([2, 2, 2, 1])
         with col_a1:
-            new_code = st.text_input("股票代码", placeholder="例如: 600519 或 000001")
+            new_code = st.text_input("股票代码", placeholder="例如: 000938")
         with col_a2:
-            new_name = st.text_input("股票简称", placeholder="例如: 贵州茅台")
+            new_name = st.text_input("股票简称", placeholder="例如: 紫光股份")
         with col_a3:
-            new_market = st.selectbox("市场板块", ["SH (沪市)", "SZ (深市)", "BJ (北交所)"])
+            new_market = st.selectbox("市场板块", ["SZ (深市)", "SH (沪市)", "BJ (北交所)"])
         with col_a4:
             st.write("")
             st.write("")
-            if st.button("添加", type="primary", use_container_width=True):
+            if st.button("手动添加", type="primary", use_container_width=True):
                 if new_code.strip() and new_name.strip():
                     stocks.append({
                         "code": new_code.strip(),
@@ -139,8 +180,6 @@ with tab_stocks:
                     scheduler.save_config(config)
                     st.success(f"已添加股票：{new_name} ({new_code})")
                     st.rerun()
-                else:
-                    st.error("请输入完整的股票代码和名称！")
 
     st.subheader("当前自选股票列表")
     current_focus = config.get("display", {}).get("focus_stock_code", "")
@@ -186,7 +225,7 @@ with tab_display:
     layout_choices = {
         "focus_and_list": "模式一：主力聚焦 + 侧边栏自选股列表 (推荐，含大折线图)",
         "dual_compare": "模式二：双股双折线图并列对比 (适合紧盯两支核心标的)",
-        "grid_overview": "模式三：4~6 支股票网格全览 (密集数据型)"
+        "grid_overview": "模式三：自适应多股网格看板 (支持 1 ~ 16 支股票动态自适应排版)"
     }
     
     current_layout = disp.get("layout_mode", "focus_and_list")
@@ -260,23 +299,37 @@ with tab_api:
     config = scheduler.load_config()
     api_cfg = config.get("api", {})
 
-    st.write("您可以在此处填入您提供的股票行情接口和折线图图片接口。未配置时系统将自动使用内置高仿真模拟数据。")
+    provider_map = {
+        "tencent": "tencent (腾讯证券官方直连 - 推荐，免配置开箱即用)",
+        "mock": "mock (内置高仿真数据与模拟走势图)",
+        "custom": "custom (用户自定义外部 API 接口)"
+    }
+    
+    current_p = api_cfg.get("provider", "tencent")
+    provider_keys = list(provider_map.keys())
+    p_idx = provider_keys.index(current_p) if current_p in provider_keys else 0
 
-    provider = st.selectbox(
+    selected_provider_key = st.selectbox(
         "数据源提供者",
-        ["mock (内置高仿真数据与分时图生成器)", "custom (用户自定义外部 API 接口)"],
-        index=0 if api_cfg.get("provider", "mock") == "mock" else 1
+        provider_keys,
+        format_func=lambda k: provider_map[k],
+        index=p_idx
     )
 
-    is_custom = ("custom" in provider)
-    custom_quote = st.text_input("股票实时数据 API 地址 (GET)", value=api_cfg.get("custom_quote_url", ""), placeholder="例如: https://api.yourdomain.com/stocks/quote?codes={codes}", disabled=not is_custom)
-    custom_chart = st.text_input("股票分时折线图图片 API 地址 (GET)", value=api_cfg.get("custom_chart_url", ""), placeholder="例如: https://api.yourdomain.com/stocks/chart/{code}.png", disabled=not is_custom)
+    if selected_provider_key == "tencent":
+        st.success("🟢 已启用腾讯证券直连：支持个股极速实时行情 (sqt.gtimg.cn)、智能搜索 (Smartbox) 以及大盘指数分时走势图 (web.ifzq.gtimg.cn)，完全无需鉴权与 Token！")
+    elif selected_provider_key == "mock":
+        st.info("🔵 运行于内置仿真模式：生成高仿真 A 股随机游走价格与行情。")
+
+    is_custom = (selected_provider_key == "custom")
+    custom_quote = st.text_input("股票实时数据 API 地址 (GET)", value=api_cfg.get("custom_quote_url", ""), placeholder="例如: https://sqt.gtimg.cn/utf8/?q={codes}&fmt=json", disabled=not is_custom)
+    custom_chart = st.text_input("备用图表 API 地址 (可选)", value=api_cfg.get("custom_chart_url", ""), placeholder="例如: https://api.yourdomain.com/chart/{code}.png", disabled=not is_custom)
     custom_token = st.text_input("API Token / 访问密钥 (可选)", value=api_cfg.get("custom_token", ""), type="password", disabled=not is_custom)
 
     col_api_btn1, col_api_btn2 = st.columns([1, 3])
     with col_api_btn1:
         if st.button("💾 保存 API 配置", type="primary"):
-            api_cfg["provider"] = "custom" if is_custom else "mock"
+            api_cfg["provider"] = selected_provider_key
             api_cfg["custom_quote_url"] = custom_quote
             api_cfg["custom_chart_url"] = custom_chart
             api_cfg["custom_token"] = custom_token
@@ -286,14 +339,18 @@ with tab_api:
             st.rerun()
 
     with col_api_btn2:
-        if st.button("🧪 测试接口联通性与图表拉取"):
-            with st.spinner("正在请求 API 测试..."):
+        if st.button("🧪 测试实时数据与大盘走势图"):
+            with st.spinner("正在请求数据与绘制分时图..."):
                 try:
-                    test_quotes = scheduler.api.get_stock_quotes(["600519"])
-                    test_chart = scheduler.api.get_stock_chart_image("600519", width=400, height=200)
-                    st.success("API 连通测试成功！")
-                    st.write("拉取的数据样例：", test_quotes[0] if test_quotes else "无数据")
-                    if test_chart:
-                        st.image(test_chart, caption="拉取的分时折线图样例", width=350)
+                    test_quotes = scheduler.api.get_stock_quotes(["000938", "600519"])
+                    st.success("✅ 股票行情接口请求成功！")
+                    st.write(f"测试股票：{test_quotes[0].name} ({test_quotes[0].code}) - 最新价: {test_quotes[0].price} 涨跌: {test_quotes[0].change_pct:+.2f}%")
+                    
+                    if hasattr(scheduler.api, "fetch_index_data"):
+                        idx_data = scheduler.api.fetch_index_data("sh000001")
+                        if idx_data:
+                            chart_img = scheduler.api.generate_index_chart(idx_data, width=480, height=220)
+                            if chart_img:
+                                st.image(chart_img, caption="本地根据分钟数据绘制的大盘走势图 (1-bit 单色)", width=480)
                 except Exception as e:
                     st.error(f"API 测试异常：{e}")
